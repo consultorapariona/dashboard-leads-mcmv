@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Leads MCMV - Sheyla Pariona</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.5.0/dist/Recharts.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        const { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } = Recharts;
+        
+        const App = () => {
+            const PALETTE = {
+                primary: '#411020',
+                secondary: '#DABC9A',
+                accent1: '#1B1F3F',
+                accent2: '#96BECD'
+            };
+
+            const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSVTL0LvYnXncjnf8g9OIEdcKO9l-ZebcoloqYj-yehJb6rPTrsaf_1ETbLpSevAoXpo-0XYCtTqiIH/pub?gid=116872357&single=true&output=csv';
+
+            const [leads, setLeads] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [filtroOrigem, setFiltroOrigem] = useState("Todos");
+            const [dataInicio, setDataInicio] = useState("2026-01-01");
+            const [dataFim, setDataFim] = useState("2026-01-31");
+
+            const carregarDados = async () => {
+                setLoading(true);
+                try {
+                    const response = await fetch(CSV_URL);
+                    const text = await response.text();
+                    const lines = text.split('\n');
+                    const headers = lines[0].split(',').map(h => h.trim());
+                    
+                    const dados = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        if (!lines[i].trim()) continue;
+                        const values = lines[i].split(',');
+                        const lead = {};
+                        headers.forEach((header, idx) => {
+                            lead[header] = values[idx]?.trim() || '';
+                        });
+                        
+                        if (lead['Data de chegada']) {
+                            const dataChegada = new Date(lead['Data de chegada'].split('/').reverse().join('-'));
+                            const hoje = new Date();
+                            lead.dias = Math.ceil(Math.abs(hoje - dataChegada) / (1000 * 60 * 60 * 24));
+                        } else {
+                            lead.dias = 0;
+                        }
+                        dados.push(lead);
+                    }
+                    setLeads(dados);
+                    setLoading(false);
+                } catch (err) {
+                    console.error(err);
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => { carregarDados(); }, []);
+
+            const etapasFunil = [
+                { nome: "tentando 1˚ retorno", cor: PALETTE.accent2, largura: 100 },
+                { nome: "qualificando", cor: PALETTE.secondary, largura: 85 },
+                { nome: "aguardando docs", cor: PALETTE.accent1, largura: 70 },
+                { nome: "aprovando", cor: '#6B7FA8', largura: 55 },
+                { nome: "visita agendada", cor: '#8B9DAF', largura: 40 },
+                { nome: "negociando", cor: PALETTE.primary, largura: 25 },
+                { nome: "pós-venda", cor: '#2D0818', largura: 15 }
+            ];
+
+            const leadsFiltrados = useMemo(() => {
+                return leads.filter(lead => {
+                    const matchOrigem = filtroOrigem === "Todos" || lead['Origem lead'] === filtroOrigem;
+                    if (lead['Data de chegada']) {
+                        const [dia, mes, ano] = lead['Data de chegada'].split('/');
+                        const dataLead = new Date(`${ano}-${mes}-${dia}`);
+                        const inicio = new Date(dataInicio);
+                        const fim = new Date(dataFim);
+                        return matchOrigem && dataLead >= inicio && dataLead <= fim;
+                    }
+                    return matchOrigem;
+                });
+            }, [leads, filtroOrigem, dataInicio, dataFim]);
+
+            const leadsAtivos = leadsFiltrados.filter(l => l.Status?.toLowerCase() !== "arquivado");
+            const leadsArquivados = leadsFiltrados.filter(l => l.Status?.toLowerCase() === "arquivado");
+
+            const dadosFunil = etapasFunil.map(etapa => ({
+                nome: etapa.nome.charAt(0).toUpperCase() + etapa.nome.slice(1),
+                quantidade: leadsAtivos.filter(l => l.Status?.toLowerCase() === etapa.nome).length,
+                cor: etapa.cor,
+                largura: etapa.largura
+            }));
+
+            const totalAtivos = leadsAtivos.length;
+            const totalLeads = leadsFiltrados.length;
+            const emNegociacao = leadsAtivos.filter(l => l.Status?.toLowerCase() === "negociando").length;
+            const taxaConversao = totalAtivos > 0 ? ((emNegociacao / totalAtivos) * 100).toFixed(1) : 0;
+            const tempoMedio = leadsAtivos.length > 0 
+                ? (leadsAtivos.reduce((acc, l) => acc + (l.dias || 0), 0) / leadsAtivos.length).toFixed(1) : 0;
+
+            if (loading) {
+                return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(to bottom right, #f9fafb, #f3f4f6)'}}>
+                    <p style={{color:PALETTE.primary,fontSize:'20px'}}>Carregando...</p>
+                </div>;
+            }
+
+            return (
+                <div style={{minHeight:'100vh',background:'linear-gradient(to bottom right, #f9fafb, #f3f4f6)',padding:'32px 16px'}}>
+                    <div style={{maxWidth:'1280px',margin:'0 auto'}}>
+                        <div style={{marginBottom:'32px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
+                            <div>
+                                <h1 style={{fontSize:'36px',fontWeight:'300',color:'#111827',marginBottom:'8px'}}>Gestão de Leads</h1>
+                                <p style={{color:'#6b7280'}}>Minha Casa Minha Vida · São Paulo</p>
+                            </div>
+                            <button onClick={carregarDados} style={{padding:'8px 16px',background:'white',border:'1px solid #e5e7eb',borderRadius:'8px',cursor:'pointer',color:PALETTE.primary}}>
+                                ↻ Atualizar
+                            </button>
+                        </div>
+
+                        {/* Filtros */}
+                        <div style={{background:'white',borderRadius:'16px',padding:'24px',marginBottom:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+                            <h2 style={{fontSize:'18px',marginBottom:'16px',color:'#111827'}}>Filtros</h2>
+                            <div style={{display:'flex',gap:'16px',flexWrap:'wrap'}}>
+                                <div>
+                                    <label style={{display:'block',fontSize:'14px',color:'#6b7280',marginBottom:'8px'}}>Origem</label>
+                                    <select value={filtroOrigem} onChange={(e)=>setFiltroOrigem(e.target.value)} style={{padding:'8px 16px',border:'1px solid #e5e7eb',borderRadius:'8px'}}>
+                                        <option>Todos</option><option>Próprio</option><option>Mobi</option><option>lista</option><option>Flip</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{display:'block',fontSize:'14px',color:'#6b7280',marginBottom:'8px'}}>Data Início</label>
+                                    <input type="date" value={dataInicio} onChange={(e)=>setDataInicio(e.target.value)} style={{padding:'8px 16px',border:'1px solid #e5e7eb',borderRadius:'8px'}}/>
+                                </div>
+                                <div>
+                                    <label style={{display:'block',fontSize:'14px',color:'#6b7280',marginBottom:'8px'}}>Data Fim</label>
+                                    <input type="date" value={dataFim} onChange={(e)=>setDataFim(e.target.value)} style={{padding:'8px 16px',border:'1px solid #e5e7eb',borderRadius:'8px'}}/>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Cards de Métricas */}
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:'16px',marginBottom:'24px'}}>
+                            <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',borderLeft:`4px solid ${PALETTE.accent2}`}}>
+                                <div style={{fontSize:'32px',fontWeight:'300',color:'#111827',marginBottom:'4px'}}>{totalLeads}</div>
+                                <div style={{fontSize:'14px',color:'#6b7280'}}>Total de Leads</div>
+                            </div>
+                            <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',borderLeft:`4px solid ${PALETTE.primary}`}}>
+                                <div style={{fontSize:'32px',fontWeight:'300',color:'#111827',marginBottom:'4px'}}>{totalAtivos}</div>
+                                <div style={{fontSize:'14px',color:'#6b7280'}}>Leads Ativos</div>
+                            </div>
+                            <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',borderLeft:`4px solid ${PALETTE.secondary}`}}>
+                                <div style={{fontSize:'32px',fontWeight:'300',color:'#111827',marginBottom:'4px'}}>{taxaConversao}%</div>
+                                <div style={{fontSize:'14px',color:'#6b7280'}}>Taxa em Negociação</div>
+                            </div>
+                            <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',borderLeft:`4px solid ${PALETTE.accent1}`}}>
+                                <div style={{fontSize:'32px',fontWeight:'300',color:'#111827',marginBottom:'4px'}}>{tempoMedio}</div>
+                                <div style={{fontSize:'14px',color:'#6b7280'}}>Dias Médios no Funil</div>
+                            </div>
+                            <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',borderLeft:'4px solid #9ca3af'}}>
+                                <div style={{fontSize:'32px',fontWeight:'300',color:'#111827',marginBottom:'4px'}}>{leadsArquivados.length}</div>
+                                <div style={{fontSize:'14px',color:'#6b7280'}}>Leads Arquivados</div>
+                            </div>
+                        </div>
+
+                        {/* Funil */}
+                        <div style={{background:'white',borderRadius:'16px',padding:'24px',marginBottom:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+                            <h2 style={{fontSize:'20px',marginBottom:'24px',color:'#111827'}}>Funil de Vendas</h2>
+                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'8px',padding:'16px'}}>
+                                {dadosFunil.map((etapa, idx) => (
+                                    <div key={idx} style={{width:'100%',display:'flex',flexDirection:'column',alignItems:'center'}}>
+                                        <div style={{width:`${etapa.largura}%`,minWidth:'200px',backgroundColor:etapa.cor,borderRadius:'8px',padding:'16px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 2px 4px rgba(0,0,0,0.1)'}}>
+                                            <span style={{color:'white',fontSize:'14px',fontWeight:'500',textTransform:'capitalize'}}>{etapa.nome}</span>
+                                            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                                                <span style={{color:'white',fontSize:'18px',fontWeight:'600'}}>{etapa.quantidade}</span>
+                                                {etapa.quantidade > 0 && <span style={{color:'white',fontSize:'12px',backgroundColor:'rgba(255,255,255,0.2)',padding:'4px 8px',borderRadius:'4px'}}>{((etapa.quantidade/totalAtivos)*100).toFixed(0)}%</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Tabela */}
+                        <div style={{background:'white',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+                            <h2 style={{fontSize:'20px',marginBottom:'24px',color:'#111827'}}>Leads Ativos Recentes</h2>
+                            <div style={{overflowX:'auto'}}>
+                                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                                    <thead>
+                                        <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                                            <th style={{textAlign:'left',padding:'12px 16px',fontSize:'14px',fontWeight:'500',color:'#6b7280'}}>Nome</th>
+                                            <th style={{textAlign:'left',padding:'12px 16px',fontSize:'14px',fontWeight:'500',color:'#6b7280'}}>Status</th>
+                                            <th style={{textAlign:'left',padding:'12px 16px',fontSize:'14px',fontWeight:'500',color:'#6b7280'}}>Origem</th>
+                                            <th style={{textAlign:'left',padding:'12px 16px',fontSize:'14px',fontWeight:'500',color:'#6b7280'}}>Dias</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {leadsAtivos.slice(0,10).map((lead,idx)=>{
+                                            const etapa = etapasFunil.find(e=>e.nome===lead.Status?.toLowerCase());
+                                            return <tr key={idx} style={{borderBottom:'1px solid #f9fafb'}}>
+                                                <td style={{padding:'12px 16px',fontSize:'14px',color:'#111827'}}>{lead['Nome Lead']}</td>
+                                                <td style={{padding:'12px 16px'}}><span style={{backgroundColor:etapa?.cor||PALETTE.accent2,color:'white',padding:'4px 12px',borderRadius:'12px',fontSize:'12px',textTransform:'capitalize'}}>{lead.Status}</span></td>
+                                                <td style={{padding:'12px 16px',fontSize:'14px',color:'#6b7280'}}>{lead['Origem lead']}</td>
+                                                <td style={{padding:'12px 16px',fontSize:'14px',color:'#6b7280'}}>{lead.dias} dias</td>
+                                            </tr>;
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
